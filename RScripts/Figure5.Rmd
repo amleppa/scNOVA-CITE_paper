@@ -1,0 +1,316 @@
+---
+title: "R Notebook - Figure 5"
+output: html_document
+---
+
+Required packages.
+```{r, echo=TRUE}
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+```
+
+Setup working directory.
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/omics/odcf/analysis/OE0285_projects/chip-in-bm/CK-AML_manuscript/') # Change to your working directory
+```
+
+## Plot Figure 5c ex vivo drug response in blasts
+
+Start preparing the input file.
+```{r, echo=TRUE}
+df.exvivo.mean <- readxl::read_excel('./data/Drug_response_average.xlsx')
+dim(df.exvivo.mean)
+
+# Order conditions
+df.exvivo.mean$Drug1_Drug2 <- factor(df.exvivo.mean$Drug1_Drug2, levels = c('Ara-C 50uM', 'Ara-C 25uM', 'Ara-C 5uM',
+                                                              'Daunorubicin 100nM', 'Daunorubicin 20nM', 'Daunorubicin 2nM',
+                                                              'Ara-C 2uM_Daunorubicin 10nM', 'Ara-C 0.5uM_Daunorubicin 10nM', 'Ara-C 0.5uM_Daunorubicin 2nM',
+                                                              
+                                                              '5-AZA 1uM', 
+                                                              'A-1331852 100nM', 'A-1331852 35nM', 'A-1331852 5nM', 
+                                                              '5-AZA 1uM_A-1331852 100nM', '5-AZA 1uM_A-1331852 35nM', '5-AZA 1uM_A-1331852 5nM',
+                                                              'Venetoclax 100nM', 'Venetoclax 35nM', 'Venetoclax 5nM',
+                                                              '5-AZA 1uM_Venetoclax 100nM', '5-AZA 1uM_Venetoclax 35nM', '5-AZA 1uM_Venetoclax 5nM',
+                                                              'MIK665 100nM', 'MIK665 35nM', 'MIK665 5nM',
+                                                              '5-AZA 1uM_MIK665 100nM', '5-AZA 1uM_MIK665 35nM', '5-AZA 1uM_MIK665 5nM',
+                                                              'Elesclomol 100nM', 'Elesclomol 35nM', 'Elesclomol 10nM',
+                                                              'Revumenib 100nM', 'Revumenib 35nM', 'Revumenib 5nM',
+                                                              'Control'))
+
+```
+
+Plot average viability in blasts.
+```{r, echo=TRUE}
+sample.idx <- c('HIAML47', 'CK349', 'CK282')
+
+p_heat <- df.exvivo.mean %>% filter(!is.na(Drug1_Drug2) & Population == 'CD45dimSSClow') %>%
+  filter(Timepoint == '24h' & sample %in% sample.idx) %>%
+  mutate(sample = factor(sample, levels = sample.idx)) %>%
+  ggplot(aes(x = sample, y = fct_rev(Drug1_Drug2), fill = mean_Viability)) +
+  geom_tile(aes(fill = mean_Viability), colour = "grey50") +
+  ylab(NULL) +
+  xlab(NULL) +
+  scale_fill_gradient(name = 'Viability', high = '#FFFFFF', low = '#FF0000', 
+                      expand = c(0,0), limits = c(0, 1), breaks = c(0, 0.5, 1, 1.5), na.value = "#FFFFFF") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        legend.title.align = 0.5,
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        legend.text = element_text(size = 7),
+        legend.key.height = unit(10, "pt"),
+        aspect.ratio = 5/1)
+
+p_heat
+
+ggsave(filename = "./figures/Figure5c_Blast_Heatmap_24h.pdf", p_heat, width = 5, height = 7)
+
+```
+## Plot Figure 5d, g and j ADT expression from CITE-seq data
+
+Plot ADT features in engraftment-diving cells vs other subclones.
+```{r, echo=TRUE}
+# Patient HIAML47
+df.ADT <- readxl::read_excel('./data/HIAML47_Metadata_AUC_ADT.xlsx')
+
+myeloid.cells <- c("HSC","LMPP","ProgRBC", "ProgMk", "GMP","CD14 Mono","CD16 Mono","ProgDC","pDC","cDC2")
+
+p_scatter <- df.ADT %>% 
+  filter(labels %in% myeloid.cells) %>%
+  filter(subclone != 'Other') %>%
+  ggplot(aes(x = Hu.CD34, y = Hu.GPR56)) +
+  ggrastr::geom_point_rast(data = . %>% filter(subclone != 'Subclone3'), color = 'grey', size = 0.2) +
+  # Color SC3-enriched cells in red
+  ggrastr::geom_point_rast(data = . %>% filter(subclone == 'Subclone3'), color = 'darkred', size = 0.2) +
+  theme_bw() + 
+  theme(aspect.ratio = 1,
+        legend.title = element_blank(),
+        legend.position = 'bottom') +
+  guides(color = guide_legend(override.aes = list(size=2))) +
+  coord_fixed()
+  
+p_scatter
+
+#cowplot::save_plot(file = "./figures/Figure5d_HIAML47_FACS_ADTs.pdf"), plot = p_scatter, base_width = 3)
+
+# Patient CK349
+df.ADT <- readxl::read_excel('./data/CK349_Metadata_AUC_ADT.xlsx')
+
+myeloid.cells <- c("HSC","LMPP","ProgRBC", "ProgMk", "GMP","CD14 Mono","CD16 Mono","ProgDC","pDC","cDC2")
+
+p_scatter <- df.ADT %>% 
+  filter(labels %in% myeloid.cells) %>%
+  filter(subclone != 'Other') %>%
+  ggplot(aes(x = `CD45RA-TotalA`, y = `CD49F-TotalA`, color = subclone)) +
+  ggrastr::geom_point_rast(data = . %>% filter(subclone != 'Subclone3'), color = 'grey', size = 0.2) +
+  # Color SC3-enriched cells in red
+  ggrastr::geom_point_rast(data = . %>% filter(subclone == 'Subclone3'), color = 'darkred', size = 0.2) +
+  theme_bw() + 
+  theme(aspect.ratio = 1,
+        legend.title = element_blank(),
+        legend.position = 'bottom') +
+  guides(color = guide_legend(override.aes = list(size=2))) +
+  coord_fixed()
+  
+p_scatter
+
+cowplot::save_plot(file = "./figures/Figure5g_CK349_FACS_ADTs.pdf", plot = p_scatter, base_width = 3)
+  
+# Patient CK282
+df.ADT <- readxl::read_excel('./data/CK282_Metadata_AUC_ADT.xlsx')
+
+myeloid.cells <- c("HSC","LMPP","ProgRBC", "ProgMk", "GMP","CD14 Mono","CD16 Mono","ProgDC","pDC","cDC2")
+
+p_scatter <- df.ADT %>% 
+  filter(labels %in% myeloid.cells) %>%
+  filter(subclone != 'Other') %>%
+  ggplot(aes(x = `CD45RA-TotalA`, y = `CD90-TotalA`, color = subclone)) +
+  ggrastr::geom_point_rast(data = . %>% filter(subclone != 'Subclone2'), color = 'grey', size = 0.2) +
+  # Color SC2-enriched cells in red
+  ggrastr::geom_point_rast(data = . %>% filter(subclone == 'Subclone2'), color = 'darkred', size = 0.2) +
+  theme_bw() + 
+  theme(aspect.ratio = 1,
+        legend.title = element_blank(),
+        legend.position = 'bottom') +
+  guides(color = guide_legend(override.aes = list(size=2))) +
+  coord_fixed()
+  
+p_scatter
+
+cowplot::save_plot(file = "./figures/Figure5j_CK282_FACS_ADTs.pdf", plot = p_scatter, base_width = 3)
+  
+```
+
+## Plot Figure 5f, 5i and 5l ex vivo drug response in subclones
+
+Plot selected concentrations as line plots.
+```{r}
+# Patient HIAML47
+df.exvivo <- readxl::read_excel('./data/HIAML47_drug_response.xlsx')
+
+sample.id <- 'HIAML47'
+drug.name <- "Venetoclax"
+d.idx <- c('Control', 'Venetoclax 5nM', 'Venetoclax 35nM', 'Venetoclax 100nM')
+col.id <- c("darkred","lightgrey")
+subclones <- c('CD34-GPR56+', 'CD45dimSSClow')
+subclone.label <- c('Engraftment-driving', 'Blasts')
+
+p_line1 <- df.exvivo.mean %>% 
+  filter(Timepoint == '24h') %>%
+  filter(Drug1_Drug2 %in% d.idx & Population %in% subclones & sample == sample.id) %>%
+  ggplot(aes(x = Drug1_Drug2, y = mean_Viability, color = Population)) +
+  geom_point(data = df.exvivo %>% filter(Timepoint == '24h' & Drug1_Drug2 %in% d.idx & Population %in% subclones),
+             aes(x = Drug1_Drug2, y = Viability)) + # Use if replicates
+  geom_line(aes(group = Population)) +
+  geom_hline(yintercept = 1, linetype = 'dashed') +
+  scale_color_manual(limits = subclones,
+                     values = col.id,
+                     labels = subclone.label) +
+  scale_y_continuous(limits = c(0,1.5), expand = expansion(0), breaks =  c(0,0.5,1,1.5)) +
+  scale_x_discrete(limits = c('Venetoclax 5nM', 'Venetoclax 35nM', 'Venetoclax 100nM'),
+                   labels = c('VEN 5nM', 'VEN 35nM', 'VEN 100nM')) +
+  ylab('Normalized Viability') +
+  xlab(NULL) +
+  ggtitle(drug.name) +
+  ggpubr::theme_pubr(legend = 'top') +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        plot.title = element_text(hjust = 0.5),
+        legend.title.align = 0.5,
+        legend.position = 'top',
+        legend.title = element_blank(),
+        legend.text = element_text(size = 7),
+        legend.key.height = unit(10, "pt"),
+        aspect.ratio = 0.7)
+
+p_line1
+
+ggsave(filename = paste0("./figures/Figure5f_HIAML47_Lineplot_24h_", drug.name, "_highlight.pdf"), p_line1, width = 4.5, height = 3.2)
+
+# Patient CK349
+df.exvivo <- readxl::read_excel('./data/CK349_drug_response.xlsx')
+
+# Plot selected concentrations as line plots
+sample.id <- 'CK349'
+drug.name <- "Ara-C_Daunorubicin"
+d.idx <- c('Control', 'Ara-C 2uM_Daunorubicin 0.23nM','Ara-C 2uM_Daunorubicin 167nM','Ara-C 10uM_Daunorubicin 0.69nM')
+col.id <- c("darkred","lightgrey")
+subclones <- c('CD45RA+CD49Fhigh', 'CD45dimSSClow')
+subclone.label <- c('Engraftment-driving', 'Blasts')
+
+p_line2 <- df.exvivo %>% 
+  filter(Timepoint == '72h') %>%
+  filter(Drug1_Drug2 %in% d.idx & Population %in% subclones & Sample == sample.id) %>%
+  ggplot(aes(x = Drug1_Drug2, y = Viability, color = Population)) +
+  geom_point(aes(x = Drug1_Drug2, y = Viability)) +
+  geom_line(aes(group = Population)) +
+  geom_hline(yintercept = 1, linetype = 'dashed') +
+  scale_color_manual(limits = subclones,
+                     values = col.id,
+                     labels = subclone.label) +
+  scale_y_continuous(limits = c(0,1.5), expand = expansion(0), breaks =  c(0,0.5,1,1.5)) +
+  scale_x_discrete(limits = d.idx[-1],
+                   labels = c('Ara-C 2uM\nDauno 0.23nM','Ara-C 2uM\nDauno 167nM','Ara-C 10uM\nDauno 0.69nM')) +
+  ylab('Normalized Viability') +
+  xlab(NULL) +
+  ggtitle(drug.name) +
+  ggpubr::theme_pubr(legend = 'top') +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        plot.title = element_text(hjust = 0.5),
+        legend.title.align = 0.5,
+        legend.position = 'top',
+        legend.title = element_blank(),
+        legend.text = element_text(size = 7),
+        legend.key.height = unit(10, "pt"),
+        aspect.ratio = 0.5)
+
+p_line2
+
+ggsave(filename = paste0("./figures/Figure5i_CK349_Lineplot_72h_", drug.name, "_highlight.pdf"), p_line2, width = 5, height = 3.2)
+
+# Patient CK282
+df.exvivo <- readxl::read_excel('./data/CK282_drug_response.xlsx')
+
+# Plot selected concentrations as line plots
+sample.id <- 'CK282'
+drug.name <- "A-1331852"
+d.idx <- c('Control', 'A-1331852 5nM', 'A-1331852 35nM', 'A-1331852 100nM')
+col.id <- c("darkred","lightgrey")
+subclones <- c('CD90highCD45RA-', 'CD45dimSSClow')
+subclone.lab <- c('Engraftment-driving', 'Blasts')
+
+p_line3 <- df.exvivo.mean %>% 
+  filter(Timepoint == '24h') %>%
+  filter(Drug1_Drug2 %in% d.idx & Population %in% subclones & sample == sample.id) %>%
+  ggplot(aes(x = Drug1_Drug2, y = mean_Viability, color = Population)) +
+  geom_point(data = df.exvivo %>% filter(Timepoint == '24h' & Drug1_Drug2 %in% d.idx & Population %in% subclones),
+             aes(x = Drug1_Drug2, y = Viability)) + # Use if replicates
+  geom_line(aes(group = Population)) +
+  geom_hline(yintercept = 1, linetype = 'dashed') +
+  scale_color_manual(limits = subclones,
+                     values = col.id,
+                     labels = subclone.label) +
+  scale_y_continuous(limits = c(0,1.1), expand = expansion(0), breaks =  c(0,0.5,1,1)) +
+  scale_x_discrete(limits = c('A-1331852 5nM', 'A-1331852 35nM', 'A-1331852 100nM'),
+                   labels = c('A-133 5nM', 'A-133 35nM', 'A-133 100nM')) +
+  ylab('Normalized Viability') +
+  xlab(NULL) +
+  ggtitle(drug.name) +
+  ggpubr::theme_pubr(legend = 'top') +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        plot.title = element_text(hjust = 0.5),
+        legend.title.align = 0.5,
+        legend.position = 'top',
+        legend.title = element_blank(),
+        legend.text = element_text(size = 7),
+        legend.key.height = unit(10, "pt"),
+        aspect.ratio = 0.7)
+
+p_line3
+
+ggsave(filename = paste0("./figures/Figure5l_CK282_Lineplot_24h_", drug.name, "_highlight.pdf"), p_line3, width = 5, height = 3.2)
+
+```
+
+## Plot Figure 5m ex vivo drug response in CK282 subclones
+
+```{r}
+
+sample.id <- 'CK282'
+subclones <- c('CD45dimSSClow', 'CD90highCD45RA-', 'CD90lowCD45RA+', 'CD90-CD45RA+', 'CD90-CD45RA-')
+labels <- c('Blasts', 'CD90highCD45RA-', 'CD90lowCD45RA+', 'CD90-CD45RA+', 'CD90-CD45RA-')
+
+h1 <- df.exvivo.mean %>% 
+  filter(sample == sample.id & Population %in% subclones) %>%
+  filter(Timepoint == '24h') %>%
+  ggplot(aes(x = Population, y = fct_rev(Drug1_Drug2), fill = mean_Viability)) +
+  geom_tile(aes(fill = mean_Viability), colour = "grey50") +
+  ylab(NULL) +
+  xlab(NULL) +
+  scale_fill_gradient(name = 'Viability', high = '#FFFFFF', low = '#FF0000', 
+                      expand = c(0,0), limits = c(0, 1), breaks = c(0, 0.5, 1, 1.5), na.value = "#FFFFFF") +
+  scale_x_discrete(limits = c('CD90-CD45RA-','CD90-CD45RA+','CD90lowCD45RA+','CD90highCD45RA-','CD45dimSSClow'),
+                   labels = c('CD90-CD45RA-','CD90-CD45RA+','CD90lowCD45RA+','CD90highCD45RA-','Blasts')) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        legend.title.align = 0.5,
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        legend.text = element_text(size = 7),
+        legend.key.height = unit(10, "pt"),
+        aspect.ratio = 1/5) +
+  annotate("text", label = 'Standard \nchemotherapy', x=8, y=24, angle = 0, size = 4, alpha=1, color= '#636363') +
+  annotate("segment", x=6, xend = 6, y=19.5, yend=28.5, size = 0.6, alpha=1, color= 'grey') +
+  annotate("text", label = 'BH3 mimetics', x=8, y=10, angle = 0, size = 4, alpha=1, color= '#636363') +
+  annotate("segment", x=6, xend = 6, y=0.5, yend=18.3, size = 0.6, alpha=1, color= 'grey') +
+  coord_flip(clip = "off")
+
+h1
+
+ggsave(filename = "./figures/Figure5m_CK282_Heatmap_24h.pdf", h1, width = 7, height = 5)
+
+```
+
+

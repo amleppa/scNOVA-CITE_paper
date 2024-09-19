@@ -1,0 +1,320 @@
+---
+title: "R Notebook - Figure 6"
+output: html_document
+---
+
+Required packages.
+```{r, echo=TRUE}
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(msigdbr)
+library(ggtext)
+library(cowplot)
+library(ggpubr)
+```
+
+Setup working directory.
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/omics/odcf/analysis/OE0285_projects/chip-in-bm/CK-AML_manuscript/') # Change to your working directory
+```
+
+## Plot Figure 6e and Extended Data Figure 10c UMAP plots
+
+Read in single cell metadata object. 
+```{r}
+df.AML <- readxl::read_excel('./data/D1922_R0836_metadata.xlsx')
+
+## Column IDs
+# wnnUMAP_1: WNN-based UMAP co-ordiante (Dimension 1)
+# wnnUMAP_2: WNN-based UMAP co-ordiante (Dimension 2)
+# Cell: cell ID
+# orig.ident: sample
+# nCount_RNA: per cell RNA counts
+# nFeature_RNA: per cell RNA features
+# nCount_ADT: per cell ADT counts
+# nFeature_ADT: per cell ADT features
+# sample: sample ID
+# labels: singleR-based annotation of a cell using healthy BM cells as reference (see Methods)
+# subclone: subclone of the cell
+# Ng_LSC_Up: Mean expression of the normalized gene counts of the signature genes obtained by Ng and colleagues (see Methods)
+# polyclonal.id: growth pattern of the sample
+# sample_subclone: combined sample and subclone information
+# subclone_label: short subclone ID
+
+```
+
+Define labels, colors and shapes for plots.
+```{r}
+limits_paired =  c('Subclone1', 'Subclone2', 'Subclone3', 'Subclone4', 'Subclone5')
+labels_paired = c('SC1', 'SC2', 'SC3', 'SC4', 'SC5')
+values_paired = c("#4393c3","#91bfdb","#d6604d","#f4a582","#fdb863")
+shape_paired = c(16,15)
+sample_paired = c('D1922','R0836')
+col_pair <- c("#ffb8b1","#993441")
+names(col_pair) <- c('Diagnosis','Relapse')
+
+myeloid.cells <- c("HSC","LMPP","ProgRBC", "ProgMk", "GMP","CD14 Mono","CD16 Mono","ProgDC","pDC","cDC2")
+```
+
+Plot UMAPs.
+```{r}
+# UMAP of diagnosis vs relapse myeloid cells
+p_umap1 <- df.AML %>%
+  filter(labels %in% myeloid.cells) %>%
+  sample_frac() %>%
+  ggplot(., aes(wnnUMAP_1, wnnUMAP_2)) +
+  ggrastr::geom_point_rast(aes(color = stage),
+                           size = 0.5, stroke = 0, raster.dpi = 500) +
+  scale_color_manual(values = col_pair) +
+  theme_pubr(legend = 'right') + 
+  theme(legend.text = element_text(size = 12),
+        legend.title = element_blank(), 
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.ticks=element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_markdown()
+  ) +
+  labs(title = 'P5 diagnosis and relapse') +
+  guides(color = guide_legend(override.aes = list(size=3))) +
+  coord_fixed() +
+  labs(x = "UMAP 1", y = "UMAP 2")
+
+p_umap1
+
+cowplot::save_plot(file = './figures/Figure6e_P5_UMAP_longitudinal.pdf', p_umap1, base_height = 4.5)
+
+# UMAP of subclones
+df.AML$subclone_sample <- paste0(df.AML$sample, '_', df.AML$subclone)
+
+p_umap2 <- df.AML %>%
+  filter(labels %in% myeloid.cells) %>%
+  sample_frac() %>%
+  ggplot(., aes(wnnUMAP_1, wnnUMAP_2)) +
+  ggrastr::geom_point_rast(data = . %>% filter(subclone == 'Other'), color = 'lightgrey',
+                           size = 0.5, stroke = 0, raster.dpi = 500) +
+  ggrastr::geom_point_rast(data = . %>% filter(subclone != 'Other'), aes(color = subclone, shape = sample),
+                           size = 0.75, stroke = 0, raster.dpi = 500) +
+  scale_color_manual(values = values_paired,
+                     limits = limits_paired,
+                     labels = labels_paired) +
+  scale_shape_manual(values = shape_paired,
+                     limits = sample_paired) +
+  theme_pubr(legend = 'right') + 
+  theme(legend.text = element_text(size = 12),
+        legend.title = element_blank(), 
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.ticks=element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_markdown()
+  ) +
+  labs(title = 'P5 subclones at diagnosis and relapse') +
+  guides(color = guide_legend(override.aes = list(size=3)), shape = guide_legend(override.aes = list(size=3))) +
+  coord_fixed() +
+  labs(x = "UMAP 1", y = "UMAP 2")
+
+p_umap2
+
+cowplot::save_plot(file = './figures/Extended10c_P5_UMAP_subclones.pdf', plot = p_umap2, base_height = 4.5)
+
+```
+
+## Plot Extended Data Figure 10b violin plots
+
+Plot stemness scores.
+```{r}
+comparisons <- list(c('Diagnosis','Relapse'))
+
+p_violin <- df.AML %>%
+  filter(labels %in% myeloid.cells) %>%
+  mutate(sample = factor(stage, levels = c('Diagnosis','Relapse'))) %>%
+  ggplot(., aes(x = stage, y = Ng_LSC_Up)) +
+  ggrastr::geom_quasirandom_rast(aes(color = stage), size = 0.1, dodge.width = 0.8) +
+  stat_summary(fun.data = "mean_cl_boot", geom = "pointrange", colour = "black", size = 0.5) + # 95% confidence interval for the mean
+  scale_color_manual(values = col_pair) +
+  geom_signif(comparisons = comparisons, step_increase = 0.1, tip_length = 0.01, textsize = 3, margin_top = 0.05, color = 'black') +
+  theme_pubr(legend = 'none') +
+  theme(axis.title.x = element_blank(),
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 0, vjust = 0.5),
+        strip.background = element_blank()) +
+  guides(fill = guide_legend(override.aes = list(size=3), title = "CLR ADT")) +
+  labs(x = NULL, y = "Stemness Score")
+  
+p_violin
+
+cowplot::save_plot(file = "./figures/Extended10b_P5_Ng_LSC_signature.pdf", plot = p_violin, base_width = 3, ncol = 1)
+```
+
+## Plot Figure 6f UMAP
+
+Plot UMAPs and violin plots of interesting genes.
+```{r}
+df.int <- readxl::read_excel('./data/D1922_R0836_RNA_intgene.xlsx')
+
+int.genes <- c('SOX4','EIF5A','EIF6')
+
+# Long format
+df.long <- df.int %>% pivot_longer(all_of(int.genes), names_to = 'Gene', values_to = 'Expression')
+ 
+# Violin plot
+p_violin <- df.long %>%
+  # Plot genes of interest
+  filter(Gene %in% c('SOX4','EIF5A')) %>%
+  filter(subclone != 'Other') %>%
+  mutate(Gene = factor(Gene, levels = int.genes)) %>%
+  # Make genes italic
+  mutate(Gene <- paste0('*', Gene, '*')) %>%
+  ggplot(aes(x = stage, y = Expression)) +
+  ggrastr::geom_quasirandom_rast(aes(color = stage), size = 0.5) +
+  scale_color_manual(values = col_pair,
+                     breaks = names(col_pair)) +
+  stat_summary(fun.data = "mean_cl_boot", geom = "pointrange", colour = "black", size = 0.5) + # 95% confidence interval for the mean
+  ggh4x::facet_nested(. ~ patient + Gene, nest_line = element_line(linetype = 2), solo_line = F, resect = unit(0.5, "cm"),
+                      scales = 'free_x', space = 'free_x') +
+  theme_pubr(legend = 'none') +
+  theme(axis.title.x = element_blank(),
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        ggh4x.facet.nestline = element_line(colour = "darkgrey"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "italic")
+  )
+
+p_violin
+
+cowplot::save_plot(file = './figures/Figure6f_P5_violinPlot_relapse_genes.pdf', plot = p_violin, base_width = 1.7, ncol = length(int.genes))
+  
+# UMAP
+p_umap <- df.long %>%
+  # Plot genes of interest
+  filter(Gene %in% c('SOX4','EIF5A')) %>%
+  mutate(Gene = factor(Gene, levels = c('SOX4','EIF5A'))) %>%
+  # Make genes italic
+  mutate(Gene <- paste0('*', Gene, '*')) %>%
+  split(.$Gene) %>%
+  purrr::map(~ ggplot(., aes(wnnUMAP_1, wnnUMAP_2)) +
+        ggrastr::geom_point_rast(data = . %>% filter(is.na(Expression)), color = 'lightgrey',
+                                 size = 0.25, stroke = 0, raster.dpi = 700) +
+        ggrastr::geom_point_rast(data = . %>% filter(!is.na(Expression)), aes(color = Expression),
+                                 size = 0.5, stroke = 0, raster.dpi = 700) +
+        scale_colour_gradientn(colors = viridis::inferno(20)[1:19]) +
+        facet_grid(.~Gene) +
+        theme_minimal() + 
+        theme(legend.text = element_text(size = 12),
+              legend.position = 'bottom',
+              #legend.title = element_blank(), 
+              axis.text=element_text(size=12),
+              axis.title=element_text(size=14),
+              axis.line=element_blank(),
+              axis.text.x=element_blank(),
+              axis.text.y=element_blank(),
+              axis.title.x=element_blank(),
+              axis.title.y=element_blank(),
+              axis.ticks=element_blank(),
+              panel.grid = element_blank(),
+              strip.text = element_text(face = "italic") #ggtext::element_markdown() 
+        ) +
+        guides(fill = guide_legend(override.aes = list(size=3), title = "Expression")) +
+        coord_fixed() +
+        labs(x = "UMAP 1", y = "UMAP 2")) %>%
+   cowplot::plot_grid(plotlist = ., ncol = 2)
+  
+p_umap
+
+cowplot::save_plot(file = './figures/Figure6f_P5_UMAP_relapse_genes.pdf', plot = p_umap, base_width = 2.5, ncol = 2)
+  
+```
+## Plot Figure 6g lollipop plots
+
+Perform pathway analysis using DEGs between diagnosis and relapse. 
+
+*Supplementary Table 10 contains DEGs for all AML cells between diagnosis and refractory disease (Supplementary Table 10-P5) as well as DEGs for subclone-specific differences between the two stages (Supplementary Table 10-P5_SC1). The script below can be used to perform pathway analysis for all the indicated comparisons and plot the results.*
+
+```{r}
+markers.df <- readxl::read_excel('./data/Supplementary_tables.xlsx', skip = 2, sheet = 'Supplementary Table 10-P5')
+
+# Top markers at diagnosis
+top.markers.de.diagnosis <- as.data.frame(markers.df) %>% filter(FDR < 0.05 & summary.logFC > 0.25 & Group == 'Diagnosis')
+dim(top.markers.de.diagnosis)
+
+# Top markers at relapse
+top.markers.de.relapse <- as.data.frame(markers.df) %>% filter(FDR < 0.05 & summary.logFC > 0.25 & Group %in% c('Refractory', 'Relapse'))
+dim(top.markers.de.relapse)
+
+# Pathway analysis using "Molecular Signatures Database (MSigDB)" gene sets
+m_df = msigdbr(species = "Homo sapiens", category = "H")
+
+m_t2g = m_df %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
+
+# Marker over-presentation analysis
+resHallmark1 <- clusterProfiler::enricher(top.markers.de.diagnosis$Gene, minGSSize = 10, TERM2GENE = m_t2g, pAdjustMethod = 'BH', pvalueCutoff = 0.05)
+resHallmark2 <- clusterProfiler::enricher(top.markers.de.relapse$Gene, minGSSize = 10, TERM2GENE = m_t2g, pAdjustMethod = 'BH', pvalueCutoff = 0.05)
+
+df.resHallmark1 <- resHallmark1@result
+df.resHallmark2 <- resHallmark2@result
+
+# Add group column and combine
+df.resHallmark1$Group <- 'Diagnosis'
+df.resHallmark2$Group <- 'Relapse'
+df.resHallmark <- rbind(df.resHallmark1, df.resHallmark2)
+
+# Clean-up naming
+df.resHallmark$ID <- str_replace(df.resHallmark$ID, 'HALLMARK_', '')
+df.resHallmark$ID <- str_replace_all(df.resHallmark$ID, '_', ' ')
+df.resHallmark$ID <- str_to_title(df.resHallmark$ID)
+```
+
+Plot lollipop plots.
+```{r}
+# Focus on gene sets with a potential importance in AML
+set.remove <- c('Estrogen Response Early', 'Estrogen Response Late', 'Androgen Response', 'Cholesterol Homeostasis', 'Epithelial Mesenchymal Transition', 'Angiogenesis', 'Pancreas Beta Cells', 'Myogenesis', 'Xenobiotic Metabolism', 'Apical Surface', 'Bile Acid Metabolism', 'Adipogenesis')
+
+p_lolli <- df.resHallmark %>% 
+  mutate(Group = factor(Group, levels = c('Diagnosis','Relapse'))) %>%
+  filter(!ID %in% set.remove) %>%
+  filter(p.adjust < 0.2) %>%
+  # Reorder ID based on p.adjust
+  mutate(ID_group = fct_reorder(paste0(ID, "-", Group), -log10(p.adjust))) %>%
+  ggplot(aes(y = -log10(p.adjust), x = ID_group)) +
+  # Add line to FDR = 0.1
+  geom_hline(yintercept = -log10(0.05), linetype = 'dashed', color = 'darkgrey') +
+  # Add data
+  geom_segment(aes(yend = 0, xend = ID_group)) +
+  geom_point(aes(size = -log10(p.adjust), color = Group)) +
+  scale_color_manual(values = col_pair,
+                     breaks = names(col_pair)) +
+  facet_grid(Group ~ ., scales = 'free', space = 'free', drop = TRUE) +
+  labs(x = NULL,
+       y = '-log10(FDR)',
+       title = 'Enriched pathways') +
+  labs(fill="") +
+  coord_flip(clip = 'off') +
+  scale_y_continuous(expand = expansion(add = c(0, 0.1)),
+                     position = "left", limits = c(0, -log10(min(df.resHallmark$p.adjust)) + 0.5)) +
+  scale_x_discrete(labels = function(x) str_remove(x, "-.+")) +
+  theme_pubr(legend = 'right') +
+  theme(strip.background = element_blank(),
+        strip.text.y = element_blank(),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(vjust = 0.5)) +
+  guides(size = guide_legend(title = '-log10(FDR)'), color = guide_legend(override.aes = list(size = 3)))
+
+p_lolli
+
+cowplot::save_plot("./figures/Figure6g_P5_ORA_Lollipop.pdf", p_lolli, base_width = 5.5)
+```
+

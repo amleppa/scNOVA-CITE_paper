@@ -1,0 +1,82 @@
+---
+title: "R Notebook - Figure 4"
+output: html_document
+---
+
+Required packages.
+```{r, echo=TRUE}
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+```
+
+Setup working directory.
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/omics/odcf/analysis/OE0285_projects/chip-in-bm/CK-AML_manuscript/') # Change to your working directory
+```
+
+## Plot Figure 4d SV burden in primary vs. PDX
+
+Start preparing the input file.
+```{r, echo=TRUE}
+# Read in table with all SVs for all cells
+inputfile <- readxl::read_excel('./data/Supplementary_tables.xlsx', skip = 1, sheet = 'Supplementary Table 3')
+dim(inputfile)
+
+# Count SVs for each cell
+df.SV.count <- inputfile %>%
+  group_by(sample, cell) %>%
+  summarise(SV_count = sum(!is.na(sv_call_name))) %>%
+  drop_na()
+
+# Add HIAML47 cell without SVs
+df.SV.count <- rbind(df.SV.count, data.frame(sample = 'HIAML47', cell = 'HIAML47_PE20488', SV_count = 0)) %>%
+  distinct() %>%
+  group_by(sample) %>%
+  mutate(n_all = n())
+
+head(df.SV.count)
+```
+
+Plot SV burden and SD in primary-PDX pairs together
+```{r}
+# Samples to be plotted
+sample.idx <- c('CK282','PDX-CK282','CK397','PDX-CK397','CK349','PDX-CK349',
+               'HIAML47','PDX-HIAML47','HIAML85','PDX-HIAML85')
+
+# Sample colors
+colors.sample <- c("#F8766D", "#C77CFF","#00BFC4","#E68613", "#00BE67")
+
+names(colors.sample) <- c('CK282','CK397','CK349','HIAML47','HIAML85')
+
+# Line chart
+p_burden <- df.SV.count %>% 
+  filter(sample %in% sample.idx) %>%
+  distinct() %>%
+  # Count mean SV per sample
+  group_by(sample) %>%
+  summarise(mean_SV = mean(SV_count)) %>%
+  # Add label of origin and sample patient label
+  mutate(origin = case_when(str_detect(sample, 'PDX') ~ 'PDX',
+                            TRUE ~ 'Primary')) %>%
+  mutate(origin = factor(origin, levels = c('Primary','PDX'))) %>%
+  mutate(patient = str_remove(sample, 'PDX-')) %>%
+  ggplot(aes(origin, mean_SV, fill = patient, group = patient)) +
+  geom_line() +
+  geom_point(size = 2, shape = 21) +
+  ggsignif::geom_signif(comparisons = list(c('Primary', 'PDX')), step_increase = 0.2, tip_length = 0.01, textsize = 3.5, size = 0.25, test = 'wilcox.test', test.args=list(alternative = "less", paired=TRUE)) +
+  theme_classic() +
+  theme(legend.position = 'right') +
+  theme(legend.title = element_blank()) +
+  scale_fill_manual(values = colors.sample) +
+  labs(x = NULL,
+       y = 'SV burden',
+       title = 'SV burden',
+       subtitle = 'Primary vs. PDX')
+
+p_burden
+  
+ggsave('./figures/Figure4d_Primary_PDX_SV_burden.pdf', p_burden, width = 3, height = 2)
+
+```

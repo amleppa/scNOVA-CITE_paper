@@ -1,0 +1,275 @@
+---
+title: "R Notebook - Figure 2"
+output: html_document
+---
+
+Required packages.
+```{r, echo=TRUE}
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(ggpubr)
+```
+
+Setup working directory.
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/omics/odcf/analysis/OE0285_projects/chip-in-bm/CK-AML_manuscript/') # Change to your working directory
+```
+
+## Figure 2e karyotype heterogeneity
+
+*Supplementary Table 3 contains all SV-altered segments for each cell and sample. The script below (when slightly modified based on samples and subclones wanting to compare) can be used to plot all strip chart and lollipop plots present in the manuscript showing SV burden and karyotype heterogeneity.*
+
+Start preparing the input file.
+```{r}
+# Read in table with all SVs for all cells
+inputfile <- readxl::read_excel('./data/Supplementary_tables.xlsx', skip = 1, sheet = 'Supplementary Table 3')
+dim(inputfile)
+
+# Combine translocations and inversions under 'tra/inv'
+inputfile <- inputfile %>%
+  tidylog::drop_na(start) %>%
+  mutate(sv_call_name = case_when(sv_call_name %in% c('tra','inv','inv_hom','tra/inv') ~ 'tra/inv',
+                                  TRUE ~ sv_call_name))
+```
+
+# Karyotype heterogeneity in CK282
+
+Define colors for subclones.
+```{r}
+sample.idx <- 'CK282'
+subclone.idx <- paste0(rep('Subclone', 5), seq(1:5)) 
+colors.idx <- c("#D8B70A", "#02401B", "#A2A475", "#81A88D", "#972D15")
+```
+
+Count SVs for each cell.
+```{r, echo=TRUE}
+df.SV.count <- inputfile %>%
+  # Filter for wanted sample - remove cells not assigned to subclones (singletons)
+  filter(sample %in% sample.idx & subclone != 'Other') %>%
+  group_by(sample, cell, subclone) %>%
+  summarise(SV_count = sum(!is.na(sv_call_name))) %>%
+  drop_na()
+```
+
+Plot strip charts and lollipop plots.
+```{r, echo=TRUE}
+comparisons.sc <- list(c('Subclone2','Subclone1'), c('Subclone2', 'Subclone3'), c('Subclone2', 'Subclone4'), c('Subclone2', 'Subclone5'))
+
+# Stripchart plot
+p_strip <- df.SV.count %>% 
+  select(sample, cell, subclone, SV_count) %>%
+  distinct() %>%
+  group_by(subclone) %>%
+  mutate(SV_variance = sd(SV_count)) %>%
+  ggplot(aes(x = subclone, y = SV_count, fill = subclone)) +
+  geom_jitter(width = 0.2, size = 0.6, fill = 'darkgray', shape = 21) +
+  stat_summary(
+    aes(color = subclone),
+    fun.data="mean_sdl",  fun.args = list(mult=1), 
+    geom = "pointrange",  size = 0.3,
+  )+
+  theme_classic() +
+  theme(legend.position = 'none', axis.text.x = element_text(hjust = 1, vjust = 1, angle = 45)) +
+  scale_color_manual(values = colors.idx) +
+  labs(title = 'SV Burden',
+       x = NULL,
+       y = 'SV Burden') +
+  stat_compare_means(method = 'wilcox.test', comparisons = comparisons.sc, tip.length = 0.01, bracket.size = 0.3, label.y.npc = 'center')
+
+p_strip
+
+# Lollipop plot
+p_lolli <- df.SV.count %>%
+  select(sample, cell, subclone, SV_count) %>%
+  distinct() %>%
+  group_by(subclone) %>%
+  summarise(SV_variance = sd(SV_count), SV_mean = mean(SV_count)) %>%
+  ggplot(aes(x = subclone, y = SV_variance, fill = subclone)) +
+  geom_linerange(aes(ymin = 0, ymax = SV_variance), 
+                 color = "darkgray", linewidth = 0.5,
+                 position = position_dodge(0.3)) +
+  geom_point(
+    aes(color = subclone),
+    position = position_dodge(0.3), size = 2) +
+  scale_color_manual(values = colors.idx) +
+  scale_y_continuous(limits = c(0, 10.5), expand = expansion(c(0, 0.1))) +
+  theme_classic() +
+  #theme(legend.position = 'none', axis.text.x = element_text(hjust = 1, vjust = 1, angle = 45)) +
+  theme(legend.position = 'none',
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, vjust = 0.5)) +
+  labs(title = 'Karyotype heterogeneity',
+       x = NULL,
+       y = 'SD')
+
+p_lolli
+
+# Combine SV Burden and variance
+plot_col <- cowplot::plot_grid(p_lolli, p_strip, align = 'hv', ncol = 1, rel_heights = c(0.7, 1))
+plot_col
+
+# Save
+ggsave('./figures/Figure2e_CK282_Karyotype_heterogeneity.pdf', plot_col, width = 3, height = 4.1)
+```
+
+# Karyotype heterogeneity in CK349
+
+Define colors for subclones.
+```{r}
+sample.idx <- 'CK349'
+subclone.idx <- paste0(rep('Subclone', 3), seq(1:3)) 
+colors.idx <- c("#F1BB7B", "#FD6467", "#5B1A18")
+```
+
+Count SVs for each cell.
+```{r, echo=TRUE}
+df.SV.count <- inputfile %>%
+  # Filter for wanted sample - remove cells not assigned to subclones (singletons)
+  filter(sample %in% sample.idx & subclone != 'Other') %>%
+  group_by(sample, cell, subclone) %>%
+  summarise(SV_count = sum(!is.na(sv_call_name))) %>%
+  drop_na()
+```
+
+Plot strip charts and lollipop plots.
+```{r, echo=TRUE}
+comparisons.sc <- list(c('Subclone3','Subclone1'), c('Subclone3', 'Subclone2'))
+
+# Stripchart plot
+p_strip <- df.SV.count %>% 
+  select(sample, cell, subclone, SV_count) %>%
+  distinct() %>%
+  group_by(subclone) %>%
+  mutate(SV_variance = sd(SV_count)) %>%
+  ggplot(aes(x = subclone, y = SV_count, fill = subclone)) +
+  geom_jitter(width = 0.2, size = 0.6, fill = 'darkgray', shape = 21) +
+  stat_summary(
+    aes(color = subclone),
+    fun.data="mean_sdl",  fun.args = list(mult=1), 
+    geom = "pointrange",  size = 0.3,
+  )+
+  theme_classic() +
+  theme(legend.position = 'none', axis.text.x = element_text(hjust = 1, vjust = 1, angle = 45)) +
+  scale_color_manual(values = colors.idx) +
+  labs(title = 'SV Burden',
+       x = NULL,
+       y = 'SV Burden') +
+  stat_compare_means(method = 'wilcox.test', comparisons = comparisons.sc, tip.length = 0.01, bracket.size = 0.3, label.y.npc = 'center')
+
+p_strip
+
+# Lollipop plot
+p_lolli <- df.SV.count %>%
+  select(sample, cell, subclone, SV_count) %>%
+  distinct() %>%
+  group_by(subclone) %>%
+  summarise(SV_variance = sd(SV_count), SV_mean = mean(SV_count)) %>%
+  ggplot(aes(x = subclone, y = SV_variance, fill = subclone)) +
+  geom_linerange(aes(ymin = 0, ymax = SV_variance), 
+                 color = "darkgray", linewidth = 0.5,
+                 position = position_dodge(0.3)) +
+  geom_point(
+    aes(color = subclone),
+    position = position_dodge(0.3), size = 2) +
+  scale_color_manual(values = colors.idx) +
+  scale_y_continuous(limits = c(0, 15), expand = expansion(c(0, 0.1))) +
+  theme_classic() +
+  #theme(legend.position = 'none', axis.text.x = element_text(hjust = 1, vjust = 1, angle = 45)) +
+  theme(legend.position = 'none',
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, vjust = 0.5)) +
+  labs(title = 'Karyotype heterogeneity',
+       x = NULL,
+       y = 'SD')
+
+p_lolli
+
+# Combine SV Burden and variance
+plot_col <- cowplot::plot_grid(p_lolli, p_strip, align = 'hv', ncol = 1, rel_heights = c(0.7, 1))
+plot_col
+
+# Save
+ggsave('./figures/Figure2e_CK349_Karyotype_heterogeneity.pdf', plot_col, width = 3, height = 4.1)
+```
+# Karyotype heterogeneity in D1922
+
+Define colors for subclones.
+```{r}
+sample.idx <- 'D1922'
+subclone.idx <- paste0(rep('Subclone', 5), seq(1:5)) 
+colors.idx <- c("#4393c3","#91bfdb","#d6604d","#f4a582","#fdb863")
+```
+
+Count SVs for each cell.
+```{r, echo=TRUE}
+df.SV.count <- inputfile %>%
+  # Filter for wanted sample - remove cells not assigned to subclones (singletons)
+  filter(sample %in% sample.idx & subclone != 'Other') %>%
+  group_by(sample, cell, subclone) %>%
+  summarise(SV_count = sum(!is.na(sv_call_name))) %>%
+  drop_na()
+```
+
+Plot strip charts and lollipop plots.
+```{r, echo=TRUE}
+comparisons.sc <- list(c('Subclone1','Subclone2'), c('Subclone1', 'Subclone3'), c('Subclone1', 'Subclone4'), c('Subclone1', 'Subclone5'))
+
+# Stripchart plot
+p_strip <- df.SV.count %>% 
+  select(sample, cell, subclone, SV_count) %>%
+  distinct() %>%
+  group_by(subclone) %>%
+  mutate(SV_variance = sd(SV_count)) %>%
+  ggplot(aes(x = subclone, y = SV_count, fill = subclone)) +
+  geom_jitter(width = 0.2, size = 0.6, fill = 'darkgray', shape = 21) +
+  stat_summary(
+    aes(color = subclone),
+    fun.data="mean_sdl",  fun.args = list(mult=1), 
+    geom = "pointrange",  size = 0.3,
+  )+
+  theme_classic() +
+  theme(legend.position = 'none', axis.text.x = element_text(hjust = 1, vjust = 1, angle = 45)) +
+  scale_color_manual(values = colors.idx) +
+  labs(title = 'SV Burden',
+       x = NULL,
+       y = 'SV Burden') +
+  stat_compare_means(method = 'wilcox.test', comparisons = comparisons.sc, tip.length = 0.01, bracket.size = 0.3, label.y.npc = 'center')
+
+p_strip
+
+# Lollipop plot
+p_lolli <- df.SV.count %>%
+  select(sample, cell, subclone, SV_count) %>%
+  distinct() %>%
+  group_by(subclone) %>%
+  summarise(SV_variance = sd(SV_count), SV_mean = mean(SV_count)) %>%
+  ggplot(aes(x = subclone, y = SV_variance, fill = subclone)) +
+  geom_linerange(aes(ymin = 0, ymax = SV_variance), 
+                 color = "darkgray", linewidth = 0.5,
+                 position = position_dodge(0.3)) +
+  geom_point(
+    aes(color = subclone),
+    position = position_dodge(0.3), size = 2) +
+  scale_color_manual(values = colors.idx) +
+  scale_y_continuous(limits = c(0, 1), expand = expansion(c(0, 0.1))) +
+  theme_classic() +
+  #theme(legend.position = 'none', axis.text.x = element_text(hjust = 1, vjust = 1, angle = 45)) +
+  theme(legend.position = 'none',
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, vjust = 0.5)) +
+  labs(title = 'Karyotype heterogeneity',
+       x = NULL,
+       y = 'SD')
+
+p_lolli
+
+# Combine SV Burden and variance
+plot_col <- cowplot::plot_grid(p_lolli, p_strip, align = 'hv', ncol = 1, rel_heights = c(0.7, 1))
+plot_col
+
+# Save
+ggsave('./figures/Figure2e_D1922_Karyotype_heterogeneity.pdf', plot_col, width = 3, height = 4.1)
+```

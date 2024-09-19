@@ -1,0 +1,172 @@
+---
+title: "R Notebook - Figure 6 and 7"
+output: html_document
+---
+
+Required packages.
+```{r, echo=TRUE}
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+```
+
+Setup working directory.
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/omics/odcf/analysis/OE0285_projects/chip-in-bm/CK-AML_manuscript/') # Change to your working directory
+```
+
+## Plot Figure 6d and 7d NO-based cell type abundance at diagnosis vs. relapse/refractory
+
+Start preparing the input file.
+```{r}
+# Read in table with all SVs for all cells
+celltype_file <- readxl::read_excel('./data/Supplementary_tables.xlsx', skip = 1, sheet = 'Supplementary Table 7')
+
+# Add nesting information
+celltype_file <- celltype_file %>%
+  mutate(Patient = case_when(Sample %in% c('D1922','R0836') ~ 'P5',
+                             Sample %in% c('P9D','P9R') ~ 'P9',
+                             TRUE ~ 'Other')
+         ) %>%
+  mutate(Stage = case_when(Sample %in% c('D1922','P9D') ~ 'Diagnosis',
+                           Sample %in% c('R0836') ~ 'Relapse',
+                           Sample %in% c('P9R') ~ 'Refractory',
+                           TRUE ~ 'Diagnosis/Salvage'))
+
+# Simplify subclone naming
+celltype_file$Subclone_pair <- str_remove(celltype_file$Subclone, '\\-derived')
+celltype_file$Subclone_label <- str_remove(celltype_file$Subclone_label, '\\-derived')
+
+head(celltype_file)
+
+# Define colors for celltypes
+colors.celltype <- c('#317773', '#990011FF','#F96167', '#EEA47FFF','#FCE77D')
+names(colors.celltype) <- c('MEP', 'HSC', 'CMP', 'LMPP', 'GMP')
+
+```
+
+Perform statistics in patient P5 and plot Figure 6d NO-based cell type abundance.
+```{r}
+sample.idx.pairs <- c('D1922','R0836')
+
+# Calculate enrichment of HSCs
+celltype_file$HSC_other <- ifelse(celltype_file$Celltype == 'HSC', 'HSC', 'Other')
+
+stats <- celltype_file %>%
+  filter(Sample %in% sample.idx.pairs) %>%
+  # How many cells are in specific celltype in each subclone
+  group_by(Sample, HSC_other) %>%
+  mutate(n = n()) %>%
+  ungroup() %>%
+  select(Sample, HSC_other, n) %>%
+  distinct()
+
+stats.df <- data.frame('HSC' = stats$n[which(stats$HSC_other == 'HSC')],
+                       'Other' = stats$n[which(stats$HSC_other == 'Other')])
+
+rownames(stats.df) <- unique(stats$Sample)
+fisher.test(stats.df, alternative = 'two.sided')
+
+# Plot barplot
+b1 <- celltype_file %>%
+  filter(Sample %in% sample.idx.pairs  & Subclone != 'Other') %>%
+  # How many cells are in specific celltype in each subclone
+  group_by(Stage, Celltype) %>%
+  mutate(n = n()) %>%
+  ungroup() %>%
+  select(Sample, Celltype, n, Patient, Stage) %>%
+  distinct() %>%
+  ggplot(aes(x = Stage, y = n, group = Celltype)) +
+  geom_bar(aes(fill = Celltype), position = 'fill', stat = 'identity', width = 0.4) +
+  scale_fill_manual(values = colors.celltype) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2), expand = expansion(add = c(0, 0.05))) +
+  ggh4x::facet_nested(Patient + Stage ~., nest_line = element_line(linetype = 2), solo_line = F, resect = unit(0.5, "cm"),
+                      scales = 'free_y', space = 'free_y') +
+  theme_classic() +
+  coord_flip() +
+  theme(legend.title = element_blank(),
+        legend.position = 'right',
+        plot.title = element_text(hjust = 0.5),
+        ggh4x.facet.nestline = element_line(colour = "darkgrey"),
+        strip.background = element_blank()) +
+  ylab('Cell fraction') +
+  xlab(NULL) 
+
+b1
+
+cowplot::save_plot('./figures/Figure6d_P5_Barplot_Celltype_Pairs.pdf', b1, base_height = 2, base_width = 3.5)
+```
+Perform statistics in patient P9 and plot Figure 7d NO-based cell type abundance.
+
+```{r}
+sample.idx.pairs <- c('P9D','P9R')
+
+# Calculate enrichment of MEPs and LMPPs
+celltype_file$MEP_other <- ifelse(celltype_file$Celltype == 'MEP', 'MEP', 'Other')
+celltype_file$LMPP_other <- ifelse(celltype_file$Celltype == 'LMPP', 'LMPP', 'Other')
+
+# MEPs
+stats <- celltype_file %>%
+  filter(Sample %in% sample.idx.pairs  & Subclone_pair %in% c('Subclone1', 'Subclone3')) %>%
+  # How many cells are in specific celltype in each subclone
+  group_by(Sample, MEP_other, Subclone_label) %>%
+  mutate(n = n()) %>%
+  ungroup() %>%
+  select(Sample, Subclone_label, MEP_other, n) %>%
+  distinct()
+
+stats.df <- data.frame('MEP' = stats$n[which(stats$MEP_other == 'MEP' & stats$Subclone_label == 'SC3')],
+                       'Other' = stats$n[which(stats$MEP_other == 'Other' & stats$Subclone_label == 'SC3')])
+
+rownames(stats.df) <- unique(stats$Sample)
+fisher.test(stats.df, alternative = 'two.sided')
+
+# LMPPs
+stats <- celltype_file %>%
+  filter(Sample %in% sample.idx.pairs  & Subclone_pair %in% c('Subclone1', 'Subclone3')) %>%
+  # How many cells are in specific celltype in each subclone
+  group_by(Sample, LMPP_other, Subclone_label) %>%
+  mutate(n = n()) %>%
+  ungroup() %>%
+  select(Sample, Subclone_label, LMPP_other, n) %>%
+  distinct()
+
+stats.df <- data.frame('LMPP' = stats$n[which(stats$LMPP_other == 'LMPP' & stats$Subclone_label == 'SC3')],
+                       'Other' = stats$n[which(stats$LMPP_other == 'Other' & stats$Subclone_label == 'SC3')])
+
+rownames(stats.df) <- unique(stats$Sample)
+fisher.test(stats.df)
+
+# Plot barplot
+b2 <- celltype_file %>%
+  filter(Sample %in% sample.idx.pairs  & Subclone_pair %in% c('Subclone1', 'Subclone3')) %>%
+  # How many cells are in specific celltype in each subclone
+  group_by(Sample, Subclone_pair, Celltype) %>%
+  mutate(n = n()) %>%
+  ungroup() %>%
+  distinct() %>%
+  ggplot(aes(x = Subclone_label, y = n)) +
+  geom_bar(aes(fill = Celltype), position = 'fill', stat = 'identity', width = 0.4) +
+  scale_fill_manual(values = colors.celltype) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2), expand = expansion(add = c(0, 0.05))) +
+  ggh4x::facet_nested(Subclone_pair + Stage ~., nest_line = element_line(linetype = 2), solo_line = F, resect = unit(0.5, "cm"),
+                      scales = 'free_y', space = 'free_y') +
+  theme_classic() +
+  coord_flip() +
+  theme(legend.title = element_blank(),
+        legend.position = 'right',
+        plot.title = element_text(hjust = 0.5),
+        ggh4x.facet.nestline = element_line(colour = "darkgrey"),
+        strip.background = element_blank()) +
+  ylab('Cell fraction') +
+  xlab(NULL) 
+
+b2
+
+cowplot::save_plot('./figures/Figure7d_P9_Barplot_Celltype_Subclone_Pairs.pdf', b2, base_height = 2, base_width = 3.5)
+
+```
+
+

@@ -1,0 +1,352 @@
+---
+title: "R Notebook - Figure 7"
+output: html_document
+---
+
+Required packages.
+```{r, echo=TRUE}
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(ggtext)
+library(msigdbr)
+```
+
+Setup working directory.
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/omics/odcf/analysis/OE0285_projects/chip-in-bm/CK-AML_manuscript/') # Change to your working directory
+```
+
+## Plot Figure 7e UMAP plots
+
+Read in single cell metadata object. 
+```{r}
+df.AML <- readxl::read_excel('./data/P9D_P9R_metadata.xlsx')
+
+## Column IDs
+# wnnUMAP_1: WNN-based UMAP co-ordiante (Dimension 1)
+# wnnUMAP_2: WNN-based UMAP co-ordiante (Dimension 2)
+# Cell: cell ID
+# orig.ident: sample
+# nCount_RNA: per cell RNA counts
+# nFeature_RNA: per cell RNA features
+# nCount_ADT: per cell ADT counts
+# nFeature_ADT: per cell ADT features
+# sample: sample ID
+# labels: singleR-based annotation of a cell using healthy BM cells as reference (see Methods)
+# subclone: subclone of the cell
+# Ng_LSC_Up: Mean expression of the normalized gene counts of the signature genes obtained by Ng and colleagues (see Methods)
+# polyclonal.id: growth pattern of the sample
+# sample_subclone: combined sample and subclone information
+# subclone_label: short subclone ID
+
+```
+
+Define labels, colors and shapes for plots.
+```{r}
+limits_paired =  c('Subclone1', 'Subclone2', 'Subclone3')
+labels_paired = c('SC1', 'SC2', 'SC3')
+values_paired = c("#ce1256","#c994c7","#e7e1ef")
+shape_paired = c(16,15)
+sample_paired = c('P9D','P9R')
+col_pair <- c("#5FA3BE","#1E4976")
+names(col_pair) <- c('Diagnosis','Refractory')
+comparison_subclone <- c('Subclone1', 'Subclone3')
+
+myeloid.cells <- c("HSC","LMPP","ProgRBC", "ProgMk", "GMP","CD14 Mono","CD16 Mono","ProgDC","pDC","cDC2")
+```
+
+Plot UMAPs.
+```{r}
+# UMAP of diagnosis vs relapse myeloid cells
+p_umap1 <- df.AML %>%
+  filter(labels %in% myeloid.cells) %>%
+  sample_frac() %>%
+  ggplot(., aes(wnnUMAP_1, wnnUMAP_2)) +
+  ggrastr::geom_point_rast(aes(color = stage),
+                           size = 0.5, stroke = 0, raster.dpi = 500) +
+  scale_color_manual(values = col_pair) +
+  theme_pubr(legend = 'right') + 
+  theme(legend.text = element_text(size = 12),
+        legend.title = element_blank(), 
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.ticks=element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_markdown()
+  ) +
+  labs(title = 'Diagnosis and Refractory') +
+  guides(color = guide_legend(override.aes = list(size=3))) +
+  coord_fixed() +
+  labs(x = "UMAP 1", y = "UMAP 2")
+
+p_umap1
+
+cowplot::save_plot(file = './figures/Figure7e_P9_UMAP_longitudinal.pdf', p_umap1, base_height = 4.5)
+
+# UMAP of subclones
+df.AML$subclone_sample <- paste0(df.AML$sample, '_', df.AML$subclone)
+
+p_umap2 <- df.AML %>%
+  filter(labels %in% myeloid.cells) %>%
+  sample_frac() %>%
+  ggplot(., aes(wnnUMAP_1, wnnUMAP_2)) +
+  ggrastr::geom_point_rast(data = . %>% filter(subclone == 'Other'), color = 'lightgrey',
+                           size = 0.5, stroke = 0, raster.dpi = 500) +
+  ggrastr::geom_point_rast(data = . %>% filter(subclone != 'Other'), aes(color = subclone, shape = sample),
+                           size = 0.75, stroke = 0, raster.dpi = 500) +
+  scale_color_manual(values = values_paired,
+                     limits = limits_paired,
+                     labels = labels_paired) +
+  scale_shape_manual(values = shape_paired,
+                     limits = sample_paired) +
+  theme_pubr(legend = 'right') + 
+  theme(legend.text = element_text(size = 12),
+        legend.title = element_blank(), 
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.ticks=element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_markdown()
+  ) +
+  labs(title = 'P9 diagnosis and refractory subclones') +
+  guides(color = guide_legend(override.aes = list(size=3)), shape = guide_legend(override.aes = list(size=3))) +
+  coord_fixed() +
+  labs(x = "UMAP 1", y = "UMAP 2")
+
+p_umap2
+
+cowplot::save_plot(file = './figures/Figure7e_P9_UMAP_subclones.pdf', plot = p_umap2, base_height = 4.5)
+
+```
+## Plot Figure 7f violin plot.
+
+Plot NF1 expression in subclones.
+```{r}
+df.int <- readxl::read_excel('./data/P9D_P9R_RNA_intgene.xlsx')
+
+p_violin <- df.int %>%
+    ggplot(aes(x = stage, y = Expression)) +
+    ggrastr::geom_quasirandom_rast(aes(color = stage), size = 0.5) +
+    scale_color_manual(values = col_pair,
+                       breaks = names(col_pair)) +
+    stat_summary(fun.data="mean_se",  fun.args = list(mult=1), geom = "crossbar",  linewidth = 0.25, color = 'orange') +
+    theme_pubr(legend = 'none') +
+    ggtitle('NF1 expression') +
+    ggh4x::facet_nested(. ~ patient + subclone, nest_line = element_line(linetype = 2), solo_line = F, resect = unit(0.5, "cm"),
+                        scales = 'free_x', space = 'free_x') +
+    theme(axis.title.x = element_blank(),
+          legend.title = element_blank(),
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          ggh4x.facet.nestline = element_line(colour = "darkgrey"),
+          strip.background = element_blank())
+
+p_violin
+  
+cowplot::save_plot(file = './figures/Figure7f_P9_NF1_subclones.pdf', plot = p_violin, base_width = 3)
+```
+
+For Extended Data Figure 10f-g, perform pathway analysis using DEGs between diagnosis and refractory. 
+
+*Supplementary Table 10 contains DEGs for all AML cells between diagnosis and refractory disease (Supplementary Table 10-P9) as well as DEGs for subclone-specific differences between the two stages (Supplementary Table 10-P9_SC1 and Supplementary Table 10-P9_SC3). The script below can be used to perform pathway analysis for all the indicated comparisons and plot the results.*
+```{r}
+markers.df <- readxl::read_excel('./data/Supplementary_tables.xlsx', skip = 2, sheet = 'Supplementary Table 10-P9_SC1')
+
+# Top markers at diagnosis
+top.markers.de.diagnosis <- as.data.frame(markers.df) %>% filter(FDR < 0.05 & summary.logFC > 0.25 & Group == 'Diagnosis')
+dim(top.markers.de.diagnosis)
+
+# Top markers at relapse
+top.markers.de.relapse <- as.data.frame(markers.df) %>% filter(FDR < 0.05 & summary.logFC > 0.25 & Group %in% c('Refractory', 'Relapse'))
+dim(top.markers.de.relapse)
+
+# Pathway analysis using "Molecular Signatures Database (MSigDB)" gene sets
+m_df = msigdbr(species = "Homo sapiens", category = "H")
+
+m_t2g = m_df %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
+
+# Marker over-presentation analysis
+resHallmark1 <- clusterProfiler::enricher(top.markers.de.diagnosis$Gene, minGSSize = 10, TERM2GENE = m_t2g, pAdjustMethod = 'BH', pvalueCutoff = 0.05)
+resHallmark2 <- clusterProfiler::enricher(top.markers.de.relapse$Gene, minGSSize = 10, TERM2GENE = m_t2g, pAdjustMethod = 'BH', pvalueCutoff = 0.05)
+
+df.resHallmark1 <- resHallmark1@result
+df.resHallmark2 <- resHallmark2@result
+
+# Add group column and combine
+df.resHallmark1$Group <- 'Diagnosis'
+df.resHallmark2$Group <- 'Refractory'
+df.resHallmark <- rbind(df.resHallmark1, df.resHallmark2)
+
+# Clean-up naming
+df.resHallmark$ID <- str_replace(df.resHallmark$ID, 'HALLMARK_', '')
+df.resHallmark$ID <- str_replace_all(df.resHallmark$ID, '_', ' ')
+df.resHallmark$ID <- str_to_title(df.resHallmark$ID)
+```
+
+Plot lollipop plots in Extended Data Figure 10f-g.
+```{r}
+# Focus on gene sets with a potential importance in AML
+set.remove <- c('Estrogen Response Early', 'Estrogen Response Late', 'Androgen Response', 'Cholesterol Homeostasis', 'Epithelial Mesenchymal Transition', 'Angiogenesis', 'Pancreas Beta Cells', 'Myogenesis', 'Xenobiotic Metabolism', 'Apical Surface', 'Bile Acid Metabolism', 'Adipogenesis')
+
+p_lolli <- df.resHallmark %>% 
+  mutate(Group = factor(Group, levels = c('Diagnosis','Refractory'))) %>%
+  filter(!ID %in% set.remove) %>%
+  filter(p.adjust < 0.2) %>%
+  # Reorder ID based on p.adjust
+  mutate(ID = fct_reorder(ID, -log10(p.adjust))) %>%
+  ggplot(aes(y = -log10(p.adjust), x = ID)) +
+  # Add line to FDR = 0.1
+  geom_hline(yintercept = -log10(0.05), linetype = 'dashed', color = 'darkgrey') +
+  # Add data
+  geom_segment(aes(yend = 0, xend = ID)) +
+  geom_point(aes(size = -log10(p.adjust), color = Group)) +
+  scale_color_manual(values = col_pair,
+                     breaks = names(col_pair)) +
+  facet_grid(Group ~ ., scales = 'free', space = 'free', drop = TRUE) +
+  labs(x = NULL,
+       y = '-log10(FDR)',
+       title = 'Enriched pathways') +
+  labs(fill="") +
+  coord_flip(clip = 'off') +
+  scale_y_continuous(expand = expansion(add = c(0, 0.1)),
+                     position = "left", limits = c(0, -log10(min(df.resHallmark$p.adjust)) + 0.5)) +
+  theme_pubr(legend = 'right') +
+  theme(strip.background = element_blank(),
+        strip.text.y = element_blank(),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(vjust = 0.5)) +
+  guides(size = guide_legend(title = '-log10(FDR)'), color = guide_legend(override.aes = list(size = 3)))
+
+p_lolli
+
+cowplot::save_plot("./figures/Extended10f_ORA_Lollipop_selected.pdf", p_lolli, base_width = 5.5)
+
+```
+
+## Plot Figure 7g ADT expression from CITE-seq in P9D
+
+Plot ADT features in different subclones.
+```{r, echo=TRUE}
+df.ADT <- readxl::read_excel('./data/P9D_Metadata_AUC_ADT.xlsx')
+
+cell.types.prog <- c("HSC","LMPP","ProgRBC", "ProgMk","GMP","Prog_DC")
+
+limits1 <- c('Subclone1', 'Subclone2', 'Subclone3')
+labels1 <- c('SC1', 'SC2', 'SC3')
+values1 <- c("#ce1256","#c994c7","#e7e1ef")
+
+p_scatter <- df.ADT %>% 
+  filter(labels %in% cell.types.prog) %>%
+  filter(subclone != 'Other') %>%
+  ggplot(aes(x = Hu.CD9, y = Hu.CD33, color = subclone)) +
+  ggrastr::geom_point_rast(size = 0.2) +
+  scale_color_manual(values = values1,
+                          limits = limits1,
+                          labels = labels1) +
+  theme_bw() + 
+  theme(aspect.ratio = 1,
+        legend.title = element_blank(),
+        legend.position = 'bottom') +
+  guides(color = guide_legend(override.aes = list(size=2))) +
+  coord_fixed()
+  
+p_scatter
+
+cowplot::save_plot(file = "./figures/Figure7g_P9D_FACS_ADTs.pdf", plot = p_scatter, base_width = 3)
+  
+```
+## Plot Figure 7i-j ex vivo drug response in subclones
+
+Plot selected concentrations as line plots.
+```{r}
+df.exvivo <- readxl::read_excel('./data/P9D_drug_response.xlsx')
+
+df.exvivo.ave <- df.exvivo %>% 
+  group_by(Drug1_Drug2, Population, Timepoint) %>%
+  summarise(mean_Viability=mean(Viability))
+
+sample.id <- 'P9D'
+col.id <- c("#e7e1ef", "#ce1256")
+subclones <- c('CD33dim+CD9dim','CD9+CD33dim')
+
+# Venetoclax + Azacitidine
+drug.name <- "5-AZA_Venetoclax"
+d.idx <- c('Control', '5-AZA 1uM_Venetoclax 5nM', '5-AZA 1uM_Venetoclax 35nM', '5-AZA 1uM_Venetoclax 100nM')
+
+p_line1 <- df.exvivo.ave %>% 
+  filter(Timepoint == '24h') %>%
+  filter(Drug1_Drug2 %in% d.idx & Population %in% subclones) %>%
+  ggplot(aes(x = Drug1_Drug2, y = mean_Viability, color = Population)) +
+  geom_point(data = df.exvivo %>% filter(Timepoint == '24h' & Drug1_Drug2 %in% d.idx & Population %in% subclones),
+             aes(x = Drug1_Drug2, y = Viability)) + # Use if replicates
+  geom_line(aes(group = Population)) +
+  geom_hline(yintercept = 1, linetype = 'dashed') +
+  scale_color_manual(limits = subclones,
+                     values = col.id) +
+  scale_y_continuous(limits = c(0,1.5), expand = expansion(0), breaks =  c(0,0.5,1,1.5)) +
+  scale_x_discrete(limits = c('5-AZA 1uM_Venetoclax 5nM', '5-AZA 1uM_Venetoclax 35nM', '5-AZA 1uM_Venetoclax 100nM'),
+                   labels = c('5-AZA 1uM\nVEN 5nM', '5-AZA 1uM\nVEN 35nM', '5-AZA 1uM\nVEN 100nM')) +
+  ylab('Normalized Viability') +
+  xlab(NULL) +
+  ggtitle(drug.name) +
+  ggpubr::theme_pubr(legend = 'top') +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        plot.title = element_text(hjust = 0.5),
+        legend.title.align = 0.5,
+        legend.position = 'top',
+        legend.title = element_blank(),
+        legend.text = element_text(size = 7),
+        legend.key.height = unit(10, "pt"),
+        aspect.ratio = 0.7)
+
+p_line1
+
+ggsave(filename = paste0('./figures/Figure7i_P9D_Lineplot_24h_', drug.name, '.pdf'), p_line1, width = 4.5, height = 3.2)
+
+# Elesclomol
+drug.name <- "Elesclomol"
+d.idx <- c('Control', 'Elesclomol 10nM', 'Elesclomol 35nM', 'Elesclomol 100nM')
+
+p_line2 <- df.exvivo.ave %>% 
+  filter(Timepoint == '24h') %>%
+  filter(Drug1_Drug2 %in% d.idx & Population %in% subclones) %>%
+  ggplot(aes(x = Drug1_Drug2, y = mean_Viability, color = Population)) +
+  geom_point(data = df.exvivo %>% filter(Timepoint == '24h' & Drug1_Drug2 %in% d.idx & Population %in% subclones),
+             aes(x = Drug1_Drug2, y = Viability)) + # Use if replicates
+  geom_line(aes(group = Population)) +
+  geom_hline(yintercept = 1, linetype = 'dashed') +
+  scale_color_manual(limits = subclones,
+                     values = col.id) +
+  scale_y_continuous(limits = c(0,1.5), expand = expansion(0), breaks =  c(0,0.5,1,1.5)) +
+  scale_x_discrete(limits = c('Elesclomol 10nM', 'Elesclomol 35nM', 'Elesclomol 100nM')) +
+  ylab('Normalized Viability') +
+  xlab(NULL) +
+  ggtitle(drug.name) +
+  ggpubr::theme_pubr(legend = 'top') +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        plot.title = element_text(hjust = 0.5),
+        legend.title.align = 0.5,
+        legend.position = 'top',
+        legend.title = element_blank(),
+        legend.text = element_text(size = 7),
+        legend.key.height = unit(10, "pt"),
+        aspect.ratio = 0.7)
+
+p_line2
+
+ggsave(filename = paste0('./figures/Figure7j_P9D_Lineplot_24h_', drug.name, '.pdf'), p_line2, width = 4.5, height = 3.2)
+```
+
+

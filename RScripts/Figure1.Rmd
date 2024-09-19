@@ -1,0 +1,229 @@
+---
+title: "R Notebook - Figure 1"
+output: html_document
+---
+
+## Plot Figure 1b SV heatmap
+
+Required packages.
+```{r, echo=TRUE}
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+```
+
+Setup working directory.
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/omics/odcf/analysis/OE0285_projects/chip-in-bm/CK-AML_manuscript/') # Change to your working directory
+```
+
+Read in binned bed file for chromosomes.
+```{r, echo=TRUE}
+genome_bins <- read.table('./data/bin_200kb_all.bed', sep = '\t', header=F, comment.char = "")
+colnames(genome_bins) <- c('chrom', 'start', 'end', 'bin')
+```
+
+Start preparing the input file.
+```{r, echo=TRUE}
+# Read in table with all SVs for all cells
+inputfile <- readxl::read_excel('./data/Supplementary_tables.xlsx', skip = 1, sheet = 'Supplementary Table 3')
+dim(inputfile)
+
+# Combine translocations and inversions under 'tra/inv'
+inputfile <- inputfile %>%
+  tidylog::drop_na(start) %>%
+  mutate(sv_call_name = case_when(sv_call_name %in% c('tra','inv','inv_hom','tra/inv') ~ 'tra/inv',
+                                  TRUE ~ sv_call_name))
+
+# Add a small "pseudo-SV" for HIAML47 cell PE20488 that lacked SVs to include the cell in the heatmap
+df <- data.frame(cell = 'HIAML47_PE20488', chrom = 'chr1', start = 0, end = 1, sv_call_name = 'del', sample = 'HIAML47', subclone = 'Subclone1', celltype = 'CMP')
+
+# Combine SV data frames
+inputfile <- rbind(inputfile, df)
+
+dim(inputfile)
+```
+
+Perform clustering of cells for each sample. 
+```{r, echo=TRUE}
+# Combine binned bed file with SV positions based on overlapping genomic intervals
+bin_SVs <- fuzzyjoin::genome_inner_join(genome_bins, inputfile, by = c("chrom", "start", "end")) %>%
+  as_tibble() %>% 
+  dplyr::select(chrom.x, start.x, end.x, bin, sample, cell, sv_call_name)
+
+# Order cells in each sample
+cell_orders <- lapply(unique(bin_SVs$sample), function(samp){
+  mat <- bin_SVs %>%
+    filter(sample == samp) %>%
+    transmute(bin_id = paste0(chrom.x, "-", bin, "-", sv_call_name), cell, 
+              present = 1) %>%
+    distinct() %>%
+    pivot_wider(names_from = cell, values_from = present, values_fill = 0) %>%
+    as.data.frame() %>%
+    column_to_rownames("bin_id") %>%
+    as.matrix()
+  cl <- hclust(dist(t(mat)), method = "ward.D")
+  colnames(mat)[cl$order]
+})
+
+names(cell_orders) <- unique(bin_SVs$sample)
+```
+
+Define colors for SVs and samples to be plotted.
+```{r, echo=TRUE}
+ash12rainbow <- c("#77AADD", "#114477", "#CC99BB", "#771155", "#A57695", "#AAAA44","#DDAA77")
+sv_call_levels <- c("del",  "del_hom", "dup",  "dup_hom", "idup", "tra/inv", "complex")
+
+# All samples at inital sampling
+sample.idx <- c('CK282','CK295','CK397','CK349','P9D','HIAML47','D1922','HIAML85')
+```
+
+Define widths for chromosome panels (columns) and heights for each sample panels based on the number of cells (rows).
+```{r, echo=TRUE}
+# Chromosomes to be plotted
+chrom_levels <- paste0("chr", c(1:22, "X"))
+
+# Chromosome widths
+chrom_width_df <- genome_bins %>%
+  dplyr::filter(chrom != "chrY") %>%
+  mutate(chrom = factor(chrom, levels = chrom_levels)) %>%
+  group_by(chrom) %>%
+  summarize(start = min(start), end = max(end)) %>%
+  arrange(chrom)
+
+# Sample heights
+sample_heights <- inputfile %>%
+  filter(sample %in% sample.idx) %>%
+  mutate(sample = factor(sample, levels = sample.idx)) %>%
+  dplyr::select(sample, cell) %>%
+  distinct() %>%
+  arrange(sample) %>%
+  dplyr::count(sample)
+
+# Plot heatmap
+pl <- inputfile %>%
+  filter(sample %in% sample.idx) %>%
+  mutate(sample = factor(sample, levels = sample.idx)) %>%
+  mutate(sample_label = paste0(sample, "\n(n=", sample_heights$n[as.integer(sample)], ")")) %>%
+  mutate(sample_label = fct_reorder(sample_label, as.integer(sample))) %>%
+  mutate(chrom = factor(chrom, levels = chrom_levels)) %>%
+  mutate(cell = as.numeric(factor(cell, levels = unlist(cell_orders)))) %>%
+  ggplot() +
+    geom_blank(data = chrom_width_df, aes(xmin = start, xmax = end)) +
+    geom_rect(aes(xmin = start, xmax=end, ymin = cell-0.5, ymax = cell+0.5, fill = sv_call_name), show.legend = FALSE) +
+    scale_fill_manual(values = ash12rainbow, limits = sv_call_levels) +
+    scale_x_continuous(expand = expansion(add = 0)) +
+    scale_y_continuous(expand = expansion(add = 0)) +
+    facet_grid(rows = vars(sample_label), cols = vars(chrom), scales = "free",
+               switch = "y", labeller = labeller(chrom = function(x) str_remove(x, 'chr'))) + 
+    ggh4x::force_panelsizes(cols = mutate(chrom_width_df, width = end - start)$width,
+                            rows = sample_heights$n/sum(sample_heights$n))
+
+pl_themed <- pl +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.background = element_blank(),
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 5),
+        strip.text.y.left = element_text(size = 6, angle = 0),
+        panel.spacing.y = unit(1, 'mm'),
+        panel.spacing.x = unit(0.5, 'mm'),
+        panel.border = element_rect(colour = "black", fill = "#00000000", linewidth = 0.25))
+
+pl_themed
+
+ggsave("./figures/Figure1b_SV_Heatmap.pdf", pl_themed, width = 10, height = 12, units = "cm")
+```
+## Plot Figure 1g karyotype heterogeneity
+
+Define colors for samples to be plotted.
+```{r, echo=TRUE}
+sample.idx <- c('CK295','CK282','CK397','CK349','HIAML47','HIAML85','P9D', 'D1922')
+
+# Sample colors
+colors.sample <- c("#7CAE00","#F8766D","#C77CFF","#00BFC4","#E68613","#00BE67","#5FA3BE","#ffb8b1")
+names(colors.sample) <- sample.idx
+
+```
+
+Count SVs for each cell.
+```{r, echo=TRUE}
+df.SV.count <- inputfile %>%
+  group_by(sample, cell) %>%
+  summarise(SV_count = sum(!is.na(sv_call_name))) %>%
+  drop_na() %>%
+  # Remove the "pseudo-SV" for HIAML47 cell PE20488
+  filter(cell != 'HIAML47_PE20488')
+  
+# Add HIAML47 cell PE20488 without SVs to the data frame
+df.SV.count <- rbind(df.SV.count, data.frame(sample = 'HIAML47', cell = 'HIAML47_PE20488', SV_count = 0)) %>%
+  distinct() %>%
+  group_by(sample) %>%
+  mutate(n_all = n())
+
+```
+
+Plot strip charts and lollipop plots.
+
+*Supplementary Table 3 contains all SV-altered segments for each cell and sample. The script below can be used to plot all strip chart and lollipop plots present in the manuscript showing SV burden and karyotype heterogeneity.*
+```{r, echo=TRUE}
+# Stripchart plot
+p_strip <- df.SV.count %>% 
+  select(sample, cell, SV_count) %>%
+  distinct() %>%
+  filter(sample %in% sample.idx) %>%
+  group_by(sample) %>%
+  mutate(SV_variance = sd(SV_count)) %>%
+  ggplot(aes(fct_reorder(sample, SV_count, .desc = TRUE), SV_count, fill = sample)) +
+  geom_jitter(width = 0.2, size = 0.6, fill = 'darkgray', shape = 21) +
+  stat_summary(
+    aes(color = sample),
+    fun.data="mean_sdl",  fun.args = list(mult=1), 
+    geom = "pointrange",  size = 0.3,
+  )+
+  theme_classic() +
+  theme(legend.position = 'none', axis.text.x = element_text(hjust = 1, vjust = 1, angle = 45)) +
+  scale_color_manual(values = colors.sample) +
+  labs(title = 'SV Burden',
+       x = NULL,
+       y = 'SV Burden')
+
+p_strip
+
+# Lollipop plot
+p_lolli <- df.SV.count %>%
+  select(sample, cell, SV_count) %>%
+  distinct() %>%
+  filter(sample %in% sample.idx) %>%
+  group_by(sample) %>%
+  summarise(SV_variance = sd(SV_count), SV_mean = mean(SV_count)) %>%
+  filter(sample %in% sample.idx) %>%
+  ggplot(aes(x = fct_reorder(sample, SV_mean, .desc = TRUE), y = SV_variance, fill = sample)) +
+  geom_linerange(aes(ymin = 0, ymax = SV_variance), 
+                 color = "darkgray", linewidth = 0.5,
+                 position = position_dodge(0.3)) +
+  geom_point(
+    aes(color = sample),
+    position = position_dodge(0.3), size = 2) +
+  geom_hline(yintercept = 5, linetype = 'dashed', color = 'grey') +
+  annotate("text", x = 8, y = 6, label = 'SD=5') +
+  scale_color_manual(values = colors.sample) +
+  scale_y_continuous(limits = c(0, 10.5), expand = expansion(c(0, 0.1))) +
+  theme_classic() +
+  theme(legend.position = 'none',
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, vjust = 0.5)) +
+  labs(title = 'Karyotype heterogeneity',
+       x = NULL,
+       y = 'SD')
+
+p_lolli
+
+# Combine SV Burden and variance
+plot_col <- cowplot::plot_grid(p_lolli, p_strip, align = 'hv', ncol = 1, rel_heights = c(0.7, 1))
+plot_col
+
+# Save
+ggsave('./figures/Figure1g_Karyotype_heterogeneity.pdf', plot_col, width = 3, height = 4.1)
+```

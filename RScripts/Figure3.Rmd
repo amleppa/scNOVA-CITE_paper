@@ -1,0 +1,398 @@
+---
+title: "R Notebook - Figure 3"
+output: html_document
+---
+
+Required packages.
+```{r, echo=TRUE}
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(colorspace)
+library(ggpubr)
+```
+
+Setup working directory.
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/omics/odcf/analysis/OE0285_projects/chip-in-bm/CK-AML_manuscript/') # Change to your working directory
+```
+
+## Plot Figure 3a UMAP plots
+
+Read in single cell metadata object. 
+
+*Attention! Object contains the combined metadata from all samples. Samples were processed separately and UMAP/TSNE co-ordinates are sample-specific.*
+
+```{r}
+df.AML <- readxl::read_excel('./data/Metadata_AML.xlsx')
+head(df.AML)
+
+## Column IDs
+# wnnTSNE_1: WNN-based TSNE co-ordiante (Dimension 1)
+# wnnTSNE_2: WNN-based TSNE co-ordiante (Dimension 2)
+# wnnUMAP_1: WNN-based UMAP co-ordiante (Dimension 1)
+# wnnUMAP_2: WNN-based UMAP co-ordiante (Dimension 2)
+# Cell: cell ID
+# nCount_RNA: per cell RNA counts
+# nFeature_RNA: per cell RNA features
+# nCount_ADT: per cell ADT counts
+# nFeature_ADT: per cell ADT features
+# sample: sample ID
+# labels: singleR-based annotation of a cell using healthy BM cells as reference (see Methods)
+# subclone: subclone of the cell
+# Ng_LSC_Up: Mean expression of the normalized gene counts of the signature genes obtained by Ng and colleagues (see Methods)
+# polyclonal.id: growth pattern of the sample
+# sample_subclone: combined sample and subclone information
+# subclone_label: short subclone ID
+
+```
+
+Define samples to be plotted (here samples with linear or branched growth) and colors for the subclones.
+```{r}
+sample.id.plot <- c('CK282','CK349','HIAML47','P9D','D1922')
+
+branched.id <- c('D1922','CK282','CK349')
+linear.id <- c('CK295','P9D','HIAML47')
+
+col.polyclonal <- c("#D8B70A","#02401B","#A2A475","#1b9e77","#972D15",
+                    "#F1BB7B", "#FD6467","#5B1A18",
+                    "#4393c3","#91bfdb","#d6604d","#f4a582","#fdb863",
+                    "#dfc27d", "#35978f","#c7eae5",
+                    "#ce1256","#c994c7","#e7e1ef")
+```
+
+Plot subclone-annotated UMAPs for selected samples.
+*Only cells annotated as myeloid are plotted.*
+
+```{r, echo=FALSE}
+arr <- list(x = -10, y = -15, x_len = 5, y_len = 5)
+
+myeloid.cells <- c("HSC","LMPP","ProgRBC", "ProgMk", "GMP","CD14 Mono","CD16 Mono","ProgDC","pDC","cDC2")
+
+# UMAP of subclones in myeloid cells
+p_umap <- df.AML %>%
+  filter(sample %in% sample.id.plot) %>%
+  filter(labels %in% myeloid.cells) %>%
+  sample_frac() %>%
+  mutate(sample = factor(sample, levels = c(linear.id, branched.id))) %>%
+  ggplot(., aes(wnnUMAP_1, wnnUMAP_2)) +
+  ggrastr::geom_point_rast(data = . %>% filter(subclone == 'Other' | !labels %in% myeloid.cells), color = lighten('lightgrey', 0.2),
+                           size = 0.5, stroke = 0, raster.dpi = 500) +
+  # Add countour lines
+  #geom_density2d(data = . %>% filter(subclone != 'Other'), aes(color = sample_subclone), linewidth = 0.1, contour_var = 'density') +
+  ggnewscale::new_scale_color() +
+  ggrastr::geom_point_rast(data = . %>% filter(subclone != 'Other'), aes(color = sample_subclone),
+                           size = 1, stroke = 0, raster.dpi = 500, alpha = 0.7) +
+  scale_color_manual(values = col.polyclonal) +
+  ggh4x::facet_nested(. ~ polyclonal.id + sample, nest_line = element_line(linetype = 2), solo_line = F, resect = unit(0.5, "cm")) +
+  annotate("segment", 
+           x = arr$x, xend = arr$x + c(arr$x_len, 0), 
+           y = arr$y, yend = arr$y + c(0, arr$y_len), 
+           arrow = arrow(type = "closed", length = unit(5, 'pt')),
+           linewidth = 0.25) +
+  theme_pubr(legend = 'none') + 
+  theme(legend.text = element_text(size = 12),
+        legend.title = element_blank(), 
+        strip.background = element_blank(),
+        ggh4x.facet.nestline = element_line(colour = "darkgrey"),
+        plot.title = element_text(color = 'black', hjust = 0.5),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.ticks=element_blank()
+  ) +
+  guides(color = guide_legend(override.aes = list(size=3))) +
+  coord_fixed() +
+  labs(x = "UMAP 1", y = "UMAP 2")
+
+p_umap
+
+cowplot::save_plot(file = "./figures/Figure3a_UMAP_subclones.pdf", plot = p_umap, base_width = 4, ncol = 5)
+```
+
+## Plot Figure 3b UMAP and jitter plots
+
+Start preparing the input file.
+```{r}
+df.RNA <- readxl::read_excel('./data/CK282_RNA_intgene.xlsx')
+
+# Genes to be plotted
+int.genes <- c('ATP5MG','ATP5MF')
+
+# Pivot data frame into long format
+df.RNA <- df.RNA %>% pivot_longer(all_of(int.genes), names_to = 'Gene', values_to = 'Expression')
+
+# Define plotting variables
+limits1 <- c('Subclone1', 'Subclone2', 'Subclone3', 'Subclone4', 'Subclone5')
+labels1 <- c('SC1', 'SC2', 'SC3', 'SC4', 'SC5')
+values1 <- c("#D8B70A","#02401B","#A2A475","#1b9e77","#972D15")
+
+```
+
+Plot expression of genes of interest in cells annotated to subclones.
+```{r, echo=TRUE}
+p_violin <- df.RNA %>%
+  filter(subclone != 'Other') %>%
+  # Plot genes in main figure
+  filter(Gene %in% int.genes) %>%
+  mutate(Gene = factor(Gene, levels = int.genes)) %>%
+  # Make genes italic
+  mutate(Gene <- paste0('*', Gene, '*')) %>%
+  ggplot(aes(x = subclone, y = Expression)) +
+  ggrastr::geom_quasirandom_rast(aes(color = subclone), size = 0.5) +
+  scale_color_manual(values = values1,
+                     limits = limits1,
+                     labels = labels1) +
+  scale_x_discrete(limits = limits1, labels = labels1) +
+  stat_summary(fun.data = "mean_cl_boot", geom = "pointrange", colour = "black", size = 0.5) +
+  ggh4x::facet_nested(. ~ sample + Gene, nest_line = element_line(linetype = 2), solo_line = F, resect = unit(0.5, "cm"), scales = 'free_x', space = 'free_x') +
+  theme_pubr(legend = 'none') +
+  theme(axis.title.x = element_blank(),
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        ggh4x.facet.nestline = element_line(colour = "darkgrey"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "italic"))
+
+p_violin
+
+cowplot::save_plot(file = "./figures/Figure3b_C282_violinPlot_genes.pdf", plot = p_violin, base_width = 2, ncol = 3)
+  
+p_umap <- df.RNA %>%
+  # Only plot strongest
+  filter(Gene %in% int.genes) %>%
+  mutate(Gene = factor(Gene, levels = int.genes)) %>%
+  # Make genes italic
+  mutate(Gene <- paste0('*', Gene, '*')) %>%
+  split(.$Gene) %>%
+  map(~ ggplot(., aes(wnnUMAP_1, wnnUMAP_2)) +
+        ggrastr::geom_point_rast(data = . %>% filter(is.na(Expression)), color = 'lightgrey',
+                                 size = 0.25, stroke = 0, raster.dpi = 700) +
+        ggrastr::geom_point_rast(data = . %>% filter(!is.na(Expression)), aes(color = Expression),
+                                   size = 0.5, stroke = 0, raster.dpi = 700) +
+        scale_colour_gradientn(colors = viridis::inferno(20)[1:19]) +
+        facet_grid(.~Gene) +
+        theme_minimal() + 
+        theme(legend.text = element_text(size = 12),
+              legend.position = 'bottom',
+              axis.text=element_text(size=12),
+              axis.title=element_text(size=14),
+              axis.line=element_blank(),
+              axis.text.x=element_blank(),
+              axis.text.y=element_blank(),
+              axis.title.x=element_blank(),
+              axis.title.y=element_blank(),
+              axis.ticks=element_blank(),
+              panel.grid = element_blank(),
+              strip.text = element_text(face = "italic")) +
+        guides(fill = guide_legend(override.aes = list(size=3), title = "Expression")) +
+        coord_fixed() +
+        labs(x = "UMAP 1", y = "UMAP 2")) %>%
+  cowplot::plot_grid(plotlist = ., ncol = 3)
+  
+p_umap
+
+cowplot::save_plot("./figures/Figure3b_CK282_UMAP_genes.pdf", plot = p_umap, base_width = 2.5, ncol = 3)
+```
+
+## Plot Figure 3c jitter plots
+
+Start preparing the input file.
+```{r}
+df.AUC <- readxl::read_excel('./data/CK282_Metadata_AUC_ADT.xlsx')
+
+# Pivot data frame into long format
+df.AUC.long <- df.AUC %>% pivot_longer(-c(wnnTSNE_1:Ng_LSC_Up, `CD26-TotalA`:`NKG2DL-TotalA`),
+                                       values_to = 'Score', names_to = 'Signature')
+
+# Modify names of gene sets
+df.AUC.long$Signature <- str_replace(df.AUC.long$Signature, '_AUC', '')
+df.AUC.long$Signature <- str_replace(df.AUC.long$Signature, 'HALLMARK_', '')
+df.AUC.long$Signature <- str_replace_all(df.AUC.long$Signature, '_', ' ')
+df.AUC.long$Signature <- str_to_title(df.AUC.long$Signature)
+
+# Define plotting variables
+limits1 <- c('Subclone1', 'Subclone2', 'Subclone3', 'Subclone4', 'Subclone5')
+labels1 <- c('SC1', 'SC2', 'SC3', 'SC4', 'SC5')
+values1 <- c("#D8B70A","#02401B","#A2A475","#1b9e77","#972D15")
+
+```
+
+Plot AUC scores for Hallmark gene sets of interest.
+```{r}
+# Gene set to be plotted
+sig.idx <- c('Oxidative Phosphorylation','Tnfa Signaling Via Nfkb','Interferon Gamma Response')
+
+# Plot signature scores in subclones
+p_AUC <- df.AUC.long %>%
+  filter(labels %in% myeloid.cells & subclone != 'Other' & Signature %in% sig.idx) %>%
+  split(.$Signature) %>%
+  map(~ ggplot(., aes(x = subclone, y = Score)) +
+        ggrastr::geom_quasirandom_rast(aes(color = subclone), size = 0.1) +
+        stat_summary(fun.data = "mean_cl_boot", geom = "pointrange", colour = "black", size = 0.5) +
+        scale_color_manual(values = values1,
+                          limits = limits1,
+                          labels = labels1) +
+        scale_x_discrete(limits = limits1, labels = labels1) +
+        ggh4x::facet_nested(. ~ sample + Signature, nest_line = element_line(linetype = 2), solo_line = F, resect = unit(0.5, "cm"),
+                        scales = 'free_x', space = 'free_x') +
+  theme_pubr(legend = 'none') + 
+  theme(axis.title.x = element_blank(),
+          legend.title = element_blank(),
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          ggh4x.facet.nestline = element_line(colour = "darkgrey"),
+          strip.background = element_blank()) +  
+  guides(fill = guide_legend(override.aes = list(size=3))) +
+  labs(x = NULL, y = "AUC Score")) %>%
+  cowplot::plot_grid(plotlist = ., ncol = length(sig.idx), nrow = 1)
+
+p_AUC
+
+cowplot::save_plot(file = "./figures/Figure3c_CK282_Hallmark_violinPlot.pdf", plot = p_AUC, base_width = 3, ncol = length(sig.idx))
+```
+
+## Plot Figure 3d UMAP and jitter plots
+
+Start preparing the input file.
+```{r}
+df.RNA <- readxl::read_excel('./data/CK349_RNA_intgene.xlsx')
+
+# Genes to be plotted
+int.genes <- c('PRDX1','LDHA','ALDH1A1')
+
+# Pivot data frame into long format
+df.RNA <- df.RNA %>% pivot_longer(all_of(int.genes), names_to = 'Gene', values_to = 'Expression')
+
+# Define plotting variables
+limits1 <- c('Subclone1', 'Subclone2', 'Subclone3')
+labels1 <- c('SC1', 'SC2', 'SC3')
+values1 <- c("#F1BB7B", "#FD6467","#5B1A18")
+```
+
+Plot expression of genes of interest in cells annotated to subclones.
+```{r, echo=TRUE}
+p_violin <- df.RNA %>%
+  filter(subclone != 'Other') %>%
+  # Plot genes in main figure
+  filter(Gene %in% int.genes) %>%
+  mutate(Gene = factor(Gene, levels = int.genes)) %>%
+  # Make genes italic
+  mutate(Gene <- paste0('*', Gene, '*')) %>%
+  ggplot(aes(x = subclone, y = Expression)) +
+  ggrastr::geom_quasirandom_rast(aes(color = subclone), size = 0.5) +
+  scale_color_manual(values = values1,
+                     limits = limits1,
+                     labels = labels1) +
+  scale_x_discrete(limits = limits1, labels = labels1) +
+  stat_summary(fun.data = "mean_cl_boot", geom = "pointrange", colour = "black", size = 0.5) +
+  ggh4x::facet_nested(. ~ sample + Gene, nest_line = element_line(linetype = 2), solo_line = F, resect = unit(0.5, "cm"), scales = 'free_x', space = 'free_x') +
+  theme_pubr(legend = 'none') +
+  theme(axis.title.x = element_blank(),
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        ggh4x.facet.nestline = element_line(colour = "darkgrey"),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "italic"))
+
+p_violin
+
+cowplot::save_plot(file = "./figures/Figure3d_CK349_violinPlot_genes.pdf", plot = p_violin, base_width = 2, ncol = 3)
+  
+p_umap <- df.RNA %>%
+  # Only plot strongest
+  filter(Gene %in% int.genes) %>%
+  mutate(Gene = factor(Gene, levels = int.genes)) %>%
+  # Make genes italic
+  mutate(Gene <- paste0('*', Gene, '*')) %>%
+  split(.$Gene) %>%
+  map(~ ggplot(., aes(wnnUMAP_1, wnnUMAP_2)) +
+        ggrastr::geom_point_rast(data = . %>% filter(is.na(Expression)), color = 'lightgrey',
+                                 size = 0.25, stroke = 0, raster.dpi = 700) +
+        ggrastr::geom_point_rast(data = . %>% filter(!is.na(Expression)), aes(color = Expression),
+                                   size = 0.5, stroke = 0, raster.dpi = 700) +
+        scale_colour_gradientn(colors = viridis::inferno(20)[1:19]) +
+        facet_grid(.~Gene) +
+        theme_minimal() + 
+        theme(legend.text = element_text(size = 12),
+              legend.position = 'bottom',
+              axis.text=element_text(size=12),
+              axis.title=element_text(size=14),
+              axis.line=element_blank(),
+              axis.text.x=element_blank(),
+              axis.text.y=element_blank(),
+              axis.title.x=element_blank(),
+              axis.title.y=element_blank(),
+              axis.ticks=element_blank(),
+              panel.grid = element_blank(),
+              strip.text = element_text(face = "italic")) +
+        guides(fill = guide_legend(override.aes = list(size=3), title = "Expression")) +
+        coord_fixed() +
+        labs(x = "UMAP 1", y = "UMAP 2")) %>%
+  cowplot::plot_grid(plotlist = ., ncol = 3)
+  
+p_umap
+
+cowplot::save_plot("./figures/Figure3d_CK349_UMAP_genes.pdf", plot = p_umap, base_width = 2.5, ncol = 3)
+```
+
+## Plot Figure 3e jitter plots
+
+Start preparing the input file.
+```{r}
+df.AUC <- readxl::read_excel('./data/CK349_Metadata_AUC_ADT.xlsx')
+
+# Pivot data frame into long format
+df.AUC.long <- df.AUC %>% pivot_longer(-c(wnnTSNE_1:Ng_LSC_Up, `CD26-TotalA`:`NKG2DL-TotalA`),
+                                       values_to = 'Score', names_to = 'Signature')
+
+# Modify names of gene sets
+df.AUC.long$Signature <- str_replace(df.AUC.long$Signature, '_AUC', '')
+df.AUC.long$Signature <- str_replace(df.AUC.long$Signature, 'HALLMARK_', '')
+df.AUC.long$Signature <- str_replace_all(df.AUC.long$Signature, '_', ' ')
+df.AUC.long$Signature <- str_to_title(df.AUC.long$Signature)
+
+# Define plotting variables
+limits1 <- c('Subclone1', 'Subclone2', 'Subclone3')
+labels1 <- c('SC1', 'SC2', 'SC3')
+values1 <- c("#F1BB7B", "#FD6467","#5B1A18")
+
+```
+
+Plot AUC scores for Hallmark gene sets of interest.
+```{r}
+# Gene set to be plotted
+sig.idx <- c('Myc Targets V1','G2m Checkpoint', 'Mitotic Spindle')
+
+# Plot signature scores in subclones
+p_AUC <- df.AUC.long %>%
+  filter(labels %in% myeloid.cells & subclone != 'Other' & Signature %in% sig.idx) %>%
+  split(.$Signature) %>%
+  map(~ ggplot(., aes(x = subclone, y = Score)) +
+        ggrastr::geom_quasirandom_rast(aes(color = subclone), size = 0.1) +
+        stat_summary(fun.data = "mean_cl_boot", geom = "pointrange", colour = "black", size = 0.5) +
+        scale_color_manual(values = values1,
+                          limits = limits1,
+                          labels = labels1) +
+        scale_x_discrete(limits = limits1, labels = labels1) +
+        ggh4x::facet_nested(. ~ sample + Signature, nest_line = element_line(linetype = 2), solo_line = F, resect = unit(0.5, "cm"),
+                        scales = 'free_x', space = 'free_x') +
+  theme_pubr(legend = 'none') + 
+  theme(axis.title.x = element_blank(),
+          legend.title = element_blank(),
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          ggh4x.facet.nestline = element_line(colour = "darkgrey"),
+          strip.background = element_blank()) +  
+  guides(fill = guide_legend(override.aes = list(size=3))) +
+  labs(x = NULL, y = "AUC Score")) %>%
+  cowplot::plot_grid(plotlist = ., ncol = length(sig.idx), nrow = 1)
+
+p_AUC
+
+cowplot::save_plot(file = "./figures/Figure3e_CK349_Hallmark_violinPlot.pdf", plot = p_AUC, base_width = 3, ncol = length(sig.idx))
+```
