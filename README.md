@@ -1,6 +1,6 @@
 # Code repository accompanying publication on single-cell multi-omics analysis in CK-AML.
 
-For the full paper see Leppä et al. *Nature Genetics* 2024.
+For the full paper see Leppä et al. TBA
 
 [Code for Figure 1](https://htmlpreview.github.io/?https://github.com/amleppa/scNOVA-CITE_paper/blob/master/RScripts/Figure1.html)
 
