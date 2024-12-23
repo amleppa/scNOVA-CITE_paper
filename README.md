@@ -1,4 +1,4 @@
-# Code repository accompanying publication on single-cell multi-omics analysis in CK-AML.
+# Code repository accompanying publication on single-cell multi-omics analysis in CK-AML
 
 For the full manuscript see:
 
