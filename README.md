@@ -1,5 +1,7 @@
 # Code repository accompanying publication on single-cell multi-omics analysis in CK-AML
 
+[![DOI](https://zenodo.org/badge/860128347.svg)](https://doi.org/10.5281/zenodo.19552239)
+
 For the full manuscript see:
 
 [Leppä et al. (2024), Single-cell multiomics analysis reveals dynamic clonal evolution and targetable phenotypes in acute myeloid leukemia with complex karyotype, *Nature Genetics*](https://www.nature.com/articles/s41588-024-01999-x) 
